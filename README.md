@@ -38,7 +38,10 @@ Successfully installed pip-25.3
 
 ## Usage
 
-
 ## Security
 - Do not commit storage_state.json or credentials.
 - Prefer Keychain over env vars.
+
+## CI
+A GitHub Action is included at `.github/workflows/ci.yml` to run linting and a basic syntax check on pushes/PRs to `main`.
+EOF
