@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.venvs/
+storage_state.json
+*.log
+.DS_Store

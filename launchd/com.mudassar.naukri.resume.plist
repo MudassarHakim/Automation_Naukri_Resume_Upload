@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mudassar.naukri.resume</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/Mudassar.Hakim/.venvs/naukri-job/bin/python</string>
+        <string>/Users/Mudassar.Hakim/naukri_job/naukri_resume_uploader.py</string>
+        <string>--storage</string>
+        <string>/Users/Mudassar.Hakim/naukri_job/storage_state.json</string>
+        <string>--resume-path</string>
+        <string>/Users/Mudassar.Hakim/Library/CloudStorage/OneDrive-EY/Documents/resume</string>
+        <string>--username</string>
+        <string>mudassar.hakim.jobs@gmail.com</string>
+        <string>--headed</string>
+        <string>--email-to</string>
+        <string>mudassar.hakim.jobs@gmail.com</string>
+        <string>--email-on-success</string>
+    </array>
+
+    <!-- Run at 10:30 every day (uses the Mac's system timezone). -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/Mudassar.Hakim/naukri_job/job.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/Mudassar.Hakim/naukri_job/job.err.log</string>
+
+    <!-- Keep job from respawning continuously -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
