@@ -111,12 +111,20 @@ def setup_session_auto(playwright: Playwright, storage_path: pathlib.Path, timeo
     return rc
 
 
-def with_context(playwright: Playwright, storage_path: pathlib.Path, headless: bool = True):
+def with_context(playwright: Playwright, storage_path: pathlib.Path, headless: bool = True, stealth_headed: bool = False, engine: str = "chromium"):
     # Launch with flags that reduce headless detection
-    browser = playwright.chromium.launch(
-        headless=headless,
-        args=["--disable-blink-features=AutomationControlled"],
-    )
+    if engine == "chromium":
+        browser = playwright.chromium.launch(
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+    elif engine == "webkit":
+        browser = playwright.webkit.launch(headless=headless)
+    elif engine == "firefox":
+        browser = playwright.firefox.launch(headless=headless)
+    else:
+        browser = playwright.chromium.launch(headless=headless)
+
     context = browser.new_context(
         storage_state=str(storage_path) if storage_path.exists() else None,
         viewport={"width": 1366, "height": 850},
@@ -133,6 +141,18 @@ def with_context(playwright: Playwright, storage_path: pathlib.Path, headless: b
         )
     except Exception:
         pass
+
+    # If running in background mode (headed but hidden), try to hide the Chromium window
+    if stealth_headed and not headless:
+        try:
+            for proc in ("Chromium", "Google Chrome"):
+                subprocess.run([
+                    "osascript", "-e",
+                    f'tell application "System Events" to set visible of process "{proc}" to false'
+                ], check=False, capture_output=True)
+        except Exception:
+            pass
+
     return browser, context
 
 
@@ -270,7 +290,13 @@ def resolve_resume_path(resume_path: pathlib.Path) -> Optional[pathlib.Path]:
         return resume_path
     if resume_path.is_dir():
         exts = {".pdf", ".doc", ".docx", ".rtf"}
-        files = [p for p in resume_path.iterdir() if p.is_file() and p.suffix.lower() in exts]
+        try:
+            files = [p for p in resume_path.iterdir() if p.is_file() and p.suffix.lower() in exts]
+        except PermissionError:
+            # Propagate as None; caller will notify with context
+            return None
+        except Exception:
+            return None
         if not files:
             return None
         # Pick the most recently modified
@@ -279,15 +305,22 @@ def resolve_resume_path(resume_path: pathlib.Path) -> Optional[pathlib.Path]:
     return None
 
 
-def upload_resume(playwright: Playwright, storage_path: pathlib.Path, resume_path: pathlib.Path, headed: bool = False, username: Optional[str] = None, password: Optional[str] = None, notify_email_to: Optional[str] = None, email_on_success: bool = False, email_on_failure: bool = True) -> int:
-    target = resolve_resume_path(resume_path)
+def upload_resume(playwright: Playwright, storage_path: pathlib.Path, resume_path: pathlib.Path, headed: bool = False, username: Optional[str] = None, password: Optional[str] = None, notify_email_to: Optional[str] = None, email_on_success: bool = False, email_on_failure: bool = True, background: bool = False, engine: str = "chromium") -> int:
+    try:
+        target = resolve_resume_path(resume_path)
+    except Exception as e:
+        target = None
     if not target:
-        err(f"Resume not found or not a supported file: {resume_path}")
-        mac_notify("Naukri uploader failed", "Resume file not found or unsupported. Check resume path.")
-        # Email notify handled by caller since we may not have destination here
+        err(f"Resume not accessible/found at: {resume_path}")
+        mac_notify("Naukri uploader failed", "Cannot access resume folder/file. Grant Full Disk Access or move resume outside protected folders.")
+        if notify_email_to and email_on_failure:
+            try:
+                email_notify(notify_email_to, "Naukri resume upload: failed", f"Cannot access resume path: {resume_path}. Grant Full Disk Access to Python or choose a different folder.")
+            except Exception:
+                pass
         return 2
 
-    browser, context = with_context(playwright, storage_path, headless=not headed)
+    browser, context = with_context(playwright, storage_path, headless=not headed, stealth_headed=background, engine=engine)
     page = context.new_page()
 
     info("Opening profile page…")
@@ -404,13 +437,51 @@ def upload_resume(playwright: Playwright, storage_path: pathlib.Path, resume_pat
     return rc
 
 
+def attempt_upload_with_engine(pw: Playwright, storage_path: pathlib.Path, resume_path: pathlib.Path, engine: str) -> int:
+    # Run headless with given engine; returns rc like upload_resume
+    browser, context = with_context(pw, storage_path, headless=True, stealth_headed=False, engine=engine)
+    page = context.new_page()
+    try:
+        page.goto(PROFILE_URL, wait_until="load", timeout=60000)
+        if not try_set_file_via_input(page, str(resume_path)):
+            try:
+                with page.expect_file_chooser(timeout=8000) as fc_info:
+                    page.get_by_role("button", name=re.compile("update resume", re.I)).click()
+                chooser = fc_info.value
+                chooser.set_files(str(resume_path))
+            except Exception:
+                context.close(); browser.close(); return 3
+        page.wait_for_load_state("networkidle", timeout=10000)
+        content = page.content()
+        if re.search(r"uploaded\s+on|success", content, re.I):
+            context.close(); browser.close(); return 0
+        # brief retry scan
+        for _ in range(5):
+            time.sleep(1)
+            try:
+                content = page.content()
+                if re.search(r"uploaded\s+on|success", content, re.I):
+                    context.close(); browser.close(); return 0
+            except Exception:
+                pass
+        context.close(); browser.close(); return 1
+    except Exception:
+        try:
+            context.close(); browser.close()
+        except Exception:
+            pass
+        return 3
+
+
 def main():
     parser = argparse.ArgumentParser(description="Naukri resume uploader")
     parser.add_argument("--setup", action="store_true", help="Run interactive login and save session state (press Enter to confirm)")
     parser.add_argument("--setup-auto", action="store_true", help="Open a browser and auto-detect login success (no terminal input)")
-    parser.add_argument("--resume-path", default=str(pathlib.Path("/Users/Mudassar.Hakim/Library/CloudStorage/OneDrive-EY/Documents/resume").expanduser()), help="Path to the resume file or folder (pdf/doc/docx/rtf). If a folder is provided, the most recently modified supported file is used.")
+    parser.add_argument("--resume-path", default=str(pathlib.Path.home() / "naukri_job" / "resume"), help="Path to the resume file or folder (pdf/doc/docx/rtf). If a folder is provided, the most recently modified supported file is used.")
     parser.add_argument("--storage", default=str(pathlib.Path.home() / "naukri_job" / "storage_state.json"), help="Path to storage_state file")
     parser.add_argument("--headed", action="store_true", help="Run with a visible browser window")
+    parser.add_argument("--background", action="store_true", help="Run headed but hide the Chromium window (best-effort)")
+    parser.add_argument("--engine", choices=["auto", "chromium", "webkit", "firefox"], default="auto", help="Browser engine to use; auto tries webkit headless first, then chromium headless, then headed if background/headed is set")
     parser.add_argument("--username", default=os.environ.get("NAUKRI_USERNAME", "mudassar.hakim.jobs@gmail.com"), help="Login email (or set NAUKRI_USERNAME)")
     parser.add_argument("--password-env", default="NAUKRI_PASSWORD", help="Name of env var that holds the password (default: NAUKRI_PASSWORD)")
     parser.add_argument("--password-keychain-service", default="com.mudassar.naukri.password", help="macOS Keychain service name to read password from if env var is not set")
@@ -434,16 +505,37 @@ def main():
         if args.setup_auto:
             return setup_session_auto(pw, storage_path)
         else:
+            # Automatic engine selection to keep background truly headless
+            if not args.headed and not args.background and args.engine == "auto":
+                target = resolve_resume_path(pathlib.Path(args.resume_path))
+                if not target:
+                    err(f"Resume not accessible/found at: {args.resume_path}")
+                    return 2
+                # Try WebKit headless first, then Chromium headless
+                with sync_playwright() as pw2:
+                    rc = attempt_upload_with_engine(pw2, storage_path, target, engine="webkit")
+                    if rc == 0:
+                        mac_notify("Naukri uploader succeeded", "Headless WebKit upload done")
+                        return 0
+                    rc = attempt_upload_with_engine(pw2, storage_path, target, engine="chromium")
+                    if rc == 0:
+                        mac_notify("Naukri uploader succeeded", "Headless Chromium upload done")
+                        return 0
+                    mac_notify("Naukri uploader warning", "Headless engines failed; consider enabling --background")
+                    return 1
+            # Otherwise follow normal path
             return upload_resume(
                 pw,
                 storage_path,
                 resume_path,
-                headed=args.headed,
+                headed=(args.headed or args.background),
                 username=args.username,
                 password=password,
                 notify_email_to=args.email_to,
                 email_on_success=args.email_on_success,
                 email_on_failure=not args.no_email_on_failure,
+                background=args.background,
+                engine=("chromium" if args.engine == "auto" else args.engine),
             )
 
 
