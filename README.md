@@ -46,7 +46,7 @@ python scripts/naukri_resume_uploader.py --setup-auto --storage storage_state.js
 python scripts/naukri_resume_uploader.py \
   --headed \
   --storage storage_state.json \
-  --resume-path "/Users/Mudassar.Hakim/Library/CloudStorage/OneDrive-EY/Documents/resume" \
+  --resume-path "$HOME/naukri_job/resume" \
   --email-to "mudassar.hakim.jobs@gmail.com" \
   --email-on-success
 ```

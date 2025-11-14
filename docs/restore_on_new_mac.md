@@ -3,8 +3,7 @@
 This document lists all steps to restore the automation on a new or formatted Mac.
 
 0) Prepare
-- Sign in to OneDrive and confirm your resume folder exists:
-  /Users/Mudassar.Hakim/Library/CloudStorage/OneDrive-EY/Documents/resume
+- (Optional) Sign in to OneDrive if you store resumes there, but the job will use a local folder by default.
 - Open the Mail app and add your account (needed for email notifications).
 
 1) Install tooling
@@ -54,7 +53,7 @@ python scripts/naukri_resume_uploader.py --setup-auto --storage storage_state.js
 python scripts/naukri_resume_uploader.py \
   --headed \
   --storage storage_state.json \
-  --resume-path "/Users/Mudassar.Hakim/Library/CloudStorage/OneDrive-EY/Documents/resume" \
+  --resume-path "$HOME/naukri_job/resume" \
   --email-to "mudassar.hakim.jobs@gmail.com" \
   --email-on-success
 ```
@@ -81,7 +80,7 @@ cat > "$PLIST" <<PLIST
     <string>--storage</string>
     <string>${REPO}/storage_state.json</string>
     <string>--resume-path</string>
-    <string>/Users/Mudassar.Hakim/Library/CloudStorage/OneDrive-EY/Documents/resume</string>
+    <string>/Users/Mudassar.Hakim/naukri_job/resume</string>
     <string>--username</string>
     <string>mudassar.hakim.jobs@gmail.com</string>
     <string>--headed</string>
